@@ -8,7 +8,7 @@ namespace fram {
 
 class FRAM : public Component, public i2c::I2CDevice {
  public:
-  // Позволяет использовать стандартный write из I2CDevice параллельно с нашим
+  // Разрешаем использование всех перегрузок write из базового класса
   using i2c::I2CDevice::write; 
 
   void setup() override;

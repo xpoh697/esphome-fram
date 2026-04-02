@@ -26,8 +26,8 @@ void FRAM::dump_config() {
 }
 
 bool FRAM::isConnected() {
-  // Явно вызываем версию из I2CDevice
-  return this->i2c::I2CDevice::write(nullptr, 0) == i2c::ERROR_OK;
+  // Используем вызов напрямую через шину без путаницы имен
+  return this->bus_->write(this->address_, nullptr, 0) == i2c::ERROR_OK;
 }
 
 void FRAM::write8(uint16_t memaddr, uint8_t value) { this->_writeBlock(memaddr, &value, 1); }
@@ -120,7 +120,7 @@ uint16_t FRAM::_getMetaData(uint8_t field) {
   return data[1] & 0x0F;
 }
 
-// Прямые вызовы функций устройства
+// Стандартная запись для 16-битных адресов
 void FRAM::_writeBlock(uint16_t memaddr, uint8_t *obj, uint8_t size) {
   this->write_register16(memaddr, obj, size);
 }
@@ -129,10 +129,10 @@ void FRAM::_readBlock(uint16_t memaddr, uint8_t *obj, uint8_t size) {
   this->read_register16(memaddr, obj, size);
 }
 
-// Для версий с разным адресным пространством используем ручную сборку буфера
+// Ручная сборка пакетов для нестандартных адресов (где мы меняем адрес устройства на лету)
 void FRAM32::_writeBlock(uint32_t memaddr, uint8_t *obj, uint8_t size) {
   uint8_t addr = this->address_ + (memaddr >> 16);
-  uint8_t buffer[blocksize + 2]; // blocksize обычно 24
+  uint8_t buffer[64]; 
   buffer[0] = (uint8_t)(memaddr >> 8);
   buffer[1] = (uint8_t)(memaddr & 0xFF);
   std::memcpy(&buffer[2], obj, size);
@@ -148,7 +148,7 @@ void FRAM32::_readBlock(uint32_t memaddr, uint8_t *obj, uint8_t size) {
 
 void FRAM11::_writeBlock(uint16_t memaddr, uint8_t *obj, uint8_t size) {
   uint8_t addr = this->address_ | ((memaddr & 0x0700) >> 8);
-  uint8_t buffer[32];
+  uint8_t buffer[64];
   buffer[0] = memaddr & 0xFF;
   std::memcpy(&buffer[1], obj, size);
   this->bus_->write(addr, buffer, size + 1);
@@ -163,7 +163,7 @@ void FRAM11::_readBlock(uint16_t memaddr, uint8_t *obj, uint8_t size) {
 
 void FRAM9::_writeBlock(uint16_t memaddr, uint8_t *obj, uint8_t size) {
   uint8_t addr = this->address_ | ((memaddr & 0x0100) >> 8);
-  uint8_t buffer[32];
+  uint8_t buffer[64];
   buffer[0] = memaddr & 0xFF;
   std::memcpy(&buffer[1], obj, size);
   this->bus_->write(addr, buffer, size + 1);

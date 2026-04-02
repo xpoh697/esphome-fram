@@ -8,6 +8,9 @@ namespace fram {
 
 class FRAM : public Component, public i2c::I2CDevice {
  public:
+  // Позволяет использовать стандартный write из I2CDevice параллельно с нашим
+  using i2c::I2CDevice::write; 
+
   void setup() override;
   void dump_config() override;
 
@@ -64,12 +67,6 @@ class FRAM32 : public FRAM {
   float readFloat(uint32_t memaddr);
   double readDouble(uint32_t memaddr);
   void read(uint32_t memaddr, uint8_t *obj, uint16_t size);
-
-  int32_t readUntil(uint32_t memaddr, char *buf, uint16_t buflen, char separator);
-  int32_t readLine(uint32_t memaddr, char *buf, uint16_t buflen);
-
-  template <class T> uint32_t writeObject(uint32_t memaddr, T &obj);
-  template <class T> uint32_t readObject(uint32_t memaddr, T &obj);
 
  protected:
   void _writeBlock(uint32_t memaddr, uint8_t *obj, uint8_t size);

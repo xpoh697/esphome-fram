@@ -21,12 +21,10 @@ void FRAM::setup() {
 void FRAM::dump_config() {
   ESP_LOGCONFIG(TAG, "FRAM:");
   ESP_LOGCONFIG(TAG, "  Address: 0x%x", this->address_);
-  if (!this->isConnected()) ESP_LOGE(TAG, "  Device not found!");
   if (this->_sizeBytes) ESP_LOGCONFIG(TAG, "  Size: %uKiB", this->_sizeBytes / 1024UL);
 }
 
 bool FRAM::isConnected() {
-  // Используем вызов напрямую через шину без путаницы имен
   return this->bus_->write(this->address_, nullptr, 0) == i2c::ERROR_OK;
 }
 
@@ -36,7 +34,7 @@ void FRAM::write32(uint16_t memaddr, uint32_t value) { this->_writeBlock(memaddr
 void FRAM::writeFloat(uint16_t memaddr, float value) { this->_writeBlock(memaddr, (uint8_t *)&value, 4); }
 void FRAM::writeDouble(uint16_t memaddr, double value) { this->_writeBlock(memaddr, (uint8_t *)&value, 8); }
 
-void FRAM::write(uint16_t memaddr, uint8_t *obj, uint16_t size) {
+void FRAM::write_data(uint16_t memaddr, uint8_t *obj, uint16_t size) {
   const int blocksize = 24;
   while (size >= blocksize) {
     this->_writeBlock(memaddr, obj, blocksize);
@@ -51,7 +49,7 @@ uint32_t FRAM::read32(uint16_t memaddr) { uint32_t v; this->_readBlock(memaddr, 
 float FRAM::readFloat(uint16_t memaddr) { float v; this->_readBlock(memaddr, (uint8_t *)&v, 4); return v; }
 double FRAM::readDouble(uint16_t memaddr) { double v; this->_readBlock(memaddr, (uint8_t *)&v, 8); return v; }
 
-void FRAM::read(uint16_t memaddr, uint8_t *obj, uint16_t size) {
+void FRAM::read_data(uint16_t memaddr, uint8_t *obj, uint16_t size) {
   const uint8_t blocksize = 24;
   while (size >= blocksize) {
     this->_readBlock(memaddr, obj, blocksize);
@@ -61,7 +59,7 @@ void FRAM::read(uint16_t memaddr, uint8_t *obj, uint16_t size) {
 }
 
 int32_t FRAM::readUntil(uint16_t memaddr, char *buf, uint16_t buflen, char separator) {
-  this->read(memaddr, (uint8_t *)buf, buflen);
+  this->read_data(memaddr, (uint8_t *)buf, buflen);
   for (uint16_t i = 0; i < buflen; i++) {
     if (buf[i] == separator) { buf[i] = 0; return i; }
   }
@@ -69,7 +67,7 @@ int32_t FRAM::readUntil(uint16_t memaddr, char *buf, uint16_t buflen, char separ
 }
 
 int32_t FRAM::readLine(uint16_t memaddr, char *buf, uint16_t buflen) {
-  this->read(memaddr, (uint8_t *)buf, buflen);
+  this->read_data(memaddr, (uint8_t *)buf, buflen);
   for (uint16_t i = 0; i < buflen - 1; i++) {
     if (buf[i] == '\n') { buf[i + 1] = 0; return i + 1; }
   }
@@ -87,8 +85,19 @@ uint16_t FRAM::getSize() {
   }
   return 0;
 }
-uint32_t FRAM::getSizeBytes() { return this->_sizeBytes; }
+uint16_t FRAM::_getMetaData(uint8_t field) {
+  if (field > 2) return 0;
+  uint8_t addr = this->address_ << 1;
+  this->bus_->write(FRAM_SLAVE_ID_, &addr, 1, false);
+  uint8_t data[3] = {0,0,0};
+  if (this->bus_->read(FRAM_SLAVE_ID_, data, 3) != i2c::ERROR_OK) return 0;
+  if (field == 0) return (data[0] << 4) + (data[1] >> 4);
+  if (field == 1) return ((data[1] & 0x0F) << 8) + data[2];
+  return data[1] & 0x0F;
+}
+
 void FRAM::setSizeBytes(uint32_t value) { this->_sizeBytes = value; }
+uint32_t FRAM::getSizeBytes() { return this->_sizeBytes; }
 
 uint32_t FRAM::clear(uint8_t value) {
   uint8_t buffer[16];
@@ -109,18 +118,6 @@ bool FRAM::wakeup(uint32_t trec) {
   return this->isConnected();
 }
 
-uint16_t FRAM::_getMetaData(uint8_t field) {
-  if (field > 2) return 0;
-  uint8_t addr = this->address_ << 1;
-  this->bus_->write(FRAM_SLAVE_ID_, &addr, 1, false);
-  uint8_t data[3] = {0,0,0};
-  if (this->bus_->read(FRAM_SLAVE_ID_, data, 3) != i2c::ERROR_OK) return 0;
-  if (field == 0) return (data[0] << 4) + (data[1] >> 4);
-  if (field == 1) return ((data[1] & 0x0F) << 8) + data[2];
-  return data[1] & 0x0F;
-}
-
-// Стандартная запись для 16-битных адресов
 void FRAM::_writeBlock(uint16_t memaddr, uint8_t *obj, uint8_t size) {
   this->write_register16(memaddr, obj, size);
 }
@@ -129,10 +126,9 @@ void FRAM::_readBlock(uint16_t memaddr, uint8_t *obj, uint8_t size) {
   this->read_register16(memaddr, obj, size);
 }
 
-// Ручная сборка пакетов для нестандартных адресов (где мы меняем адрес устройства на лету)
 void FRAM32::_writeBlock(uint32_t memaddr, uint8_t *obj, uint8_t size) {
   uint8_t addr = this->address_ + (memaddr >> 16);
-  uint8_t buffer[64]; 
+  uint8_t buffer[40]; 
   buffer[0] = (uint8_t)(memaddr >> 8);
   buffer[1] = (uint8_t)(memaddr & 0xFF);
   std::memcpy(&buffer[2], obj, size);
@@ -148,7 +144,7 @@ void FRAM32::_readBlock(uint32_t memaddr, uint8_t *obj, uint8_t size) {
 
 void FRAM11::_writeBlock(uint16_t memaddr, uint8_t *obj, uint8_t size) {
   uint8_t addr = this->address_ | ((memaddr & 0x0700) >> 8);
-  uint8_t buffer[64];
+  uint8_t buffer[40];
   buffer[0] = memaddr & 0xFF;
   std::memcpy(&buffer[1], obj, size);
   this->bus_->write(addr, buffer, size + 1);
@@ -163,7 +159,7 @@ void FRAM11::_readBlock(uint16_t memaddr, uint8_t *obj, uint8_t size) {
 
 void FRAM9::_writeBlock(uint16_t memaddr, uint8_t *obj, uint8_t size) {
   uint8_t addr = this->address_ | ((memaddr & 0x0100) >> 8);
-  uint8_t buffer[64];
+  uint8_t buffer[40];
   buffer[0] = memaddr & 0xFF;
   std::memcpy(&buffer[1], obj, size);
   this->bus_->write(addr, buffer, size + 1);
@@ -174,6 +170,34 @@ void FRAM9::_readBlock(uint16_t memaddr, uint8_t *obj, uint8_t size) {
   uint8_t maddr = memaddr & 0xFF;
   this->bus_->write(addr, &maddr, 1, false);
   this->bus_->read(addr, obj, size);
+}
+
+// Заглушки для методов FRAM32
+void FRAM32::write8(uint32_t memaddr, uint8_t value) { this->_writeBlock(memaddr, &value, 1); }
+void FRAM32::write16(uint32_t memaddr, uint16_t value) { this->_writeBlock(memaddr, (uint8_t *)&value, 2); }
+void FRAM32::write32(uint32_t memaddr, uint32_t value) { this->_writeBlock(memaddr, (uint8_t *)&value, 4); }
+void FRAM32::writeFloat(uint32_t memaddr, float value) { this->_writeBlock(memaddr, (uint8_t *)&value, 4); }
+void FRAM32::writeDouble(uint32_t memaddr, double value) { this->_writeBlock(memaddr, (uint8_t *)&value, 8); }
+void FRAM32::write_data(uint32_t memaddr, uint8_t *obj, uint16_t size) {
+  const int blocksize = 24;
+  while (size >= blocksize) {
+    this->_writeBlock(memaddr, obj, blocksize);
+    memaddr += blocksize; obj += blocksize; size -= blocksize;
+  }
+  if (size > 0) this->_writeBlock(memaddr, obj, size);
+}
+uint8_t FRAM32::read8(uint32_t memaddr) { uint8_t v; this->_readBlock(memaddr, &v, 1); return v; }
+uint16_t FRAM32::read16(uint32_t memaddr) { uint16_t v; this->_readBlock(memaddr, (uint8_t *)&v, 2); return v; }
+uint32_t FRAM32::read32(uint32_t memaddr) { uint32_t v; this->_readBlock(memaddr, (uint8_t *)&v, 4); return v; }
+float FRAM32::readFloat(uint32_t memaddr) { float v; this->_readBlock(memaddr, (uint8_t *)&v, 4); return v; }
+double FRAM32::readDouble(uint32_t memaddr) { double v; this->_readBlock(memaddr, (uint8_t *)&v, 8); return v; }
+void FRAM32::read_data(uint32_t memaddr, uint8_t *obj, uint16_t size) {
+  const uint8_t blocksize = 24;
+  while (size >= blocksize) {
+    this->_readBlock(memaddr, obj, blocksize);
+    memaddr += blocksize; obj += blocksize; size -= blocksize;
+  }
+  if (size > 0) this->_readBlock(memaddr, obj, size);
 }
 
 }  // namespace fram

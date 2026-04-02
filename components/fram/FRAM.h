@@ -8,9 +8,6 @@ namespace fram {
 
 class FRAM : public Component, public i2c::I2CDevice {
  public:
-  // Разрешаем использование всех перегрузок write из базового класса
-  using i2c::I2CDevice::write; 
-
   void setup() override;
   void dump_config() override;
 
@@ -21,14 +18,14 @@ class FRAM : public Component, public i2c::I2CDevice {
   void write32(uint16_t memaddr, uint32_t value);
   void writeFloat(uint16_t memaddr, float value);
   void writeDouble(uint16_t memaddr, double value);
-  void write(uint16_t memaddr, uint8_t *obj, uint16_t size);
+  void write_data(uint16_t memaddr, uint8_t *obj, uint16_t size); // Переименовано
 
   uint8_t read8(uint16_t memaddr);
   uint16_t read16(uint16_t memaddr);
   uint32_t read32(uint16_t memaddr);
   float readFloat(uint16_t memaddr);
   double readDouble(uint16_t memaddr);
-  void read(uint16_t memaddr, uint8_t *obj, uint16_t size);
+  void read_data(uint16_t memaddr, uint8_t *obj, uint16_t size); // Переименовано
 
   int32_t readUntil(uint16_t memaddr, char *buf, uint16_t buflen, char separator);
   int32_t readLine(uint16_t memaddr, char *buf, uint16_t buflen);
@@ -59,14 +56,14 @@ class FRAM32 : public FRAM {
   void write32(uint32_t memaddr, uint32_t value);
   void writeFloat(uint32_t memaddr, float value);
   void writeDouble(uint32_t memaddr, double value);
-  void write(uint32_t memaddr, uint8_t *obj, uint16_t size);
+  void write_data(uint32_t memaddr, uint8_t *obj, uint16_t size);
 
   uint8_t read8(uint32_t memaddr);
   uint16_t read16(uint32_t memaddr);
   uint32_t read32(uint32_t memaddr);
   float readFloat(uint32_t memaddr);
   double readDouble(uint32_t memaddr);
-  void read(uint32_t memaddr, uint8_t *obj, uint16_t size);
+  void read_data(uint32_t memaddr, uint8_t *obj, uint16_t size);
 
  protected:
   void _writeBlock(uint32_t memaddr, uint8_t *obj, uint8_t size);
